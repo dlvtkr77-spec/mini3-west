@@ -106,6 +106,24 @@
     .evidence figcaption { margin-top: 8px; }
     .limit { margin: 0 0 16px; color: var(--muted); }
     .source { margin: 0; color: var(--muted); font-size: 0.85rem; }
+    .filters button.secondary { background: var(--card); border-color: var(--accent); color: var(--accent); }
+    .filters button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .rec { margin: -8px 0 20px; }
+    .rec:empty { display: none; }
+    .rec-box { padding: 12px 16px; border: 1px solid var(--accent); border-radius: 10px; }
+    .rec-box h2 { margin: 0 0 6px; font-size: 1rem; }
+    .rec-box p { margin: 0; }
+    .rec-msg { margin: 0; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); }
+    .card.picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .badge {
+      align-self: flex-start;
+      padding: 1px 8px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #ffffff;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
@@ -126,7 +144,9 @@
         <input type="number" id="min-wins" min="0" step="1" inputmode="numeric">
       </label>
       <button type="submit">적용</button>
+      <button type="button" class="secondary" id="recommend-btn">이 조건으로 추천받기</button>
     </form>
+    <div class="rec" id="rec" aria-live="polite"></div>
     <ul class="grid" id="cards"></ul>
 
     <section class="evidence" aria-labelledby="evidence-title">
@@ -165,6 +185,8 @@
     // 카드 한 장을 만든다 (index는 data.json 안의 원래 번호)
     function makeCard(item, index) {
       const card = el("li", "card");
+      card.dataset.name = item.name;
+      card.dataset.year = item.year;
       card.appendChild(el("span", "num", "#" + index));
       card.appendChild(el("h2", "name", item.name));
       const stats = el("ul", "stats");
@@ -213,17 +235,138 @@
         const all = items.map((item, index) => ({ item, index }));
         render(all, all, "");
 
+        const seasonInput = document.getElementById("season");
+        const minInput = document.getElementById("min-wins");
+        const recBtn = document.getElementById("recommend-btn");
+        const recBox = document.getElementById("rec");
+        const REC_LABEL = "이 조건으로 추천받기";
+        const MSG_UNAVAILABLE = "추천을 불러오지 못했습니다. 잠시 뒤 다시 눌러 주세요.";
+        const MSG_UNVERIFIED = "추천 결과를 확인하지 못했습니다.";
+
+        // 마지막으로 "적용"한 조건과 그 결과 (추천은 이 값을 기준으로 한다)
+        let applied = { season: "", minText: "", minWins: null, matched: all };
+        // 진행 중인 추천 요청 (조건이 바뀌면 끊는다)
+        let pending = null;
+
+        // 입력 칸이 마지막으로 적용한 조건과 같은지 확인한다
+        function inputsMatchApplied() {
+          return seasonInput.value === applied.season && minInput.value.trim() === applied.minText;
+        }
+
+        // 추천 단추 상태를 정한다 (기다리는 중이거나 적용 전 조건이면 누를 수 없다)
+        function updateRecButton() {
+          recBtn.textContent = pending ? "고르는 중…" : REC_LABEL;
+          recBtn.disabled = Boolean(pending) || !inputsMatchApplied();
+          recBtn.title = !pending && !inputsMatchApplied() ? "먼저 적용을 눌러 주세요" : "";
+        }
+
+        // 이전 추천 결과와 카드의 AI 추천 표시를 지우고, 진행 중인 요청을 끊는다
+        function clearRecommendation() {
+          if (pending) pending.abort();
+          pending = null;
+          recBox.replaceChildren();
+          document.querySelectorAll(".card.picked").forEach((card) => {
+            card.classList.remove("picked");
+            card.querySelector(".badge")?.remove();
+          });
+          updateRecButton();
+        }
+
+        // 조건 칸 아래에 안내 문장 하나를 보여준다
+        function showMessage(text) {
+          recBox.replaceChildren(el("p", "rec-msg", text));
+        }
+
+        // 추천 결과를 보여주고 name과 year가 모두 같은 카드에 "AI 추천" 표시를 붙인다
+        function showRecommendation(rec) {
+          const box = el("div", "rec-box");
+          box.appendChild(el("h2", "", "AI 추천: " + rec.name + " · " + rec.year + " season"));
+          rec.reasons.forEach((line) => box.appendChild(el("p", "", line)));
+          recBox.replaceChildren(box);
+          document.querySelectorAll(".card").forEach((card) => {
+            if (card.dataset.name === rec.name && card.dataset.year === rec.year) {
+              card.classList.add("picked");
+              card.insertBefore(el("span", "badge", "AI 추천"), card.firstChild);
+            }
+          });
+        }
+
+        // 응답이 보낸 후보 안에 있고, 이유 숫자가 고른 후보의 wins·goals_for와 맞는지 확인한다
+        function verify(rec, candidates) {
+          if (!rec || typeof rec.name !== "string" || typeof rec.year !== "string") return null;
+          const picked = candidates.find((c) => c.name === rec.name && c.year === rec.year);
+          if (!picked) return null;
+          if (!Array.isArray(rec.reasons) || rec.reasons.length !== 2) return null;
+          if (!rec.reasons.every((r) => typeof r === "string" && r.trim() !== "" && !/[\r\n]/.test(r))) return null;
+          const allowed = [String(picked.wins), String(picked.goals_for)];
+          const numbers = rec.reasons.join(" ").match(/\d+(?:[.,]\d+)*/g) || [];
+          if (!numbers.every((n) => allowed.includes(n))) return null;
+          if (!allowed.every((n) => numbers.includes(n))) return null;
+          return { name: picked.name, year: picked.year, reasons: rec.reasons };
+        }
+
         // "적용"을 누르면 두 조건을 모두 만족하는 카드만 wins 높은 순으로 보여준다
         document.getElementById("filters").addEventListener("submit", (event) => {
           event.preventDefault();
-          const season = document.getElementById("season").value;
-          const minText = document.getElementById("min-wins").value.trim();
+          const season = seasonInput.value;
+          const minText = minInput.value.trim();
           const minWins = minText === "" ? null : Number(minText);
           const matched = all
             .filter(({ item }) => season === "" || item.year === season)
             .filter(({ item }) => minWins === null || item.wins >= minWins)
             .sort((a, b) => b.item.wins - a.item.wins || a.index - b.index);
+          applied = { season, minText, minWins, matched };
+          clearRecommendation();
           render(matched, all, season);
+        });
+
+        // 조건 칸을 바꾸면 이전 추천을 지운다
+        [seasonInput, minInput].forEach((input) => {
+          input.addEventListener("input", clearRecommendation);
+          input.addEventListener("change", clearRecommendation);
+        });
+
+        // "이 조건으로 추천받기": 적용한 조건의 후보 중 wins 높은 순(같으면 name 오름차순) 최대 5개를 서버로 보낸다
+        recBtn.addEventListener("click", async () => {
+          if (pending || !inputsMatchApplied()) return;
+          clearRecommendation();
+          // 후보가 없으면 AI를 부르지 않는다 (카드 자리의 기존 안내만 남긴다)
+          if (applied.matched.length === 0) return;
+          const candidates = applied.matched
+            .map(({ item }) => ({ name: item.name, year: item.year, wins: item.wins, goals_for: item.goals_for }))
+            .sort((a, b) => b.wins - a.wins || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+            .slice(0, 5);
+
+          const controller = new AbortController();
+          pending = controller;
+          updateRecButton();
+          const timer = setTimeout(() => controller.abort(), 30000);
+          let message = MSG_UNAVAILABLE;
+          let result = null;
+          try {
+            const res = await fetch("/api/recommend", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ season: applied.season, minWins: applied.minWins, candidates }),
+              signal: controller.signal,
+            });
+            if (res.status === 422) {
+              message = MSG_UNVERIFIED;
+            } else if (res.ok) {
+              result = verify(await res.json(), candidates);
+              if (!result) message = MSG_UNVERIFIED;
+            }
+          } catch (err) {
+            // 시간 초과·네트워크 오류는 MSG_UNAVAILABLE로 둔다
+          } finally {
+            clearTimeout(timer);
+          }
+          // 기다리는 동안 조건이 바뀌어 요청이 끊겼으면 아무것도 보여주지 않는다
+          if (pending !== controller) return;
+          pending = null;
+          updateRecButton();
+          if (result) showRecommendation(result);
+          else showMessage(message);
         });
       })
       .catch((err) => {
