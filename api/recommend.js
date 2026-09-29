@@ -8,7 +8,7 @@ const MODEL = "gemini-3.5-flash-lite";
 // generateContent 엔드포인트 주소
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 // Gemini 응답을 기다리는 최대 시간 (밀리초)
-const TIMEOUT_MS = 20000;
+const TIMEOUT_MS = 45000;
 // 한 번에 넘길 수 있는 최대 후보 수
 const MAX_CANDIDATES = 5;
 // 화면에서 고를 수 있는 시즌 값 (빈 값은 조건 없음)
@@ -142,6 +142,8 @@ module.exports = async function handler(req, res) {
           responseMimeType: "application/json",
           responseSchema: RESPONSE_SCHEMA,
           temperature: 0.2,
+          // 생각 단계를 최소로 줄여 응답 시간을 줄인다
+          thinkingConfig: { thinkingLevel: "minimal" },
         },
       }),
       signal: controller.signal,

@@ -340,7 +340,7 @@
           const controller = new AbortController();
           pending = controller;
           updateRecButton();
-          const timer = setTimeout(() => controller.abort(), 30000);
+          const timer = setTimeout(() => controller.abort(), 50000);
           let message = MSG_UNAVAILABLE;
           let result = null;
           try {
