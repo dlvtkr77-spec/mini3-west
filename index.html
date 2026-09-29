@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>하키 팀 비교 도우미</title>
+  <style>
+    :root {
+      --bg: #fcfcfb;
+      --card: #ffffff;
+      --border: #e5e4e0;
+      --text: #0b0b0b;
+      --muted: #52514e;
+      --accent: #2a78d6;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1a1a19;
+        --card: #242423;
+        --border: #383835;
+        --text: #ffffff;
+        --muted: #c3c2b7;
+        --accent: #6da7ec;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+    main { max-width: 1100px; margin: 0 auto; padding: 32px 16px 48px; }
+    h1 { margin: 0 0 4px; font-size: 1.75rem; }
+    .count { margin: 0 0 8px; color: var(--muted); }
+    .notice {
+      margin: 0 0 24px;
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 12px;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .num { color: var(--muted); font-size: 0.8rem; }
+    .name { margin: 0; font-size: 1.05rem; font-weight: 600; }
+    .stats { margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: 0.95rem; }
+    .stats .wins { color: var(--text); font-weight: 600; }
+    .card a { margin-top: auto; padding-top: 6px; color: var(--accent); font-size: 0.9rem; }
+    .error { color: #d03b3b; }
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 12px;
+      margin: 0 0 20px;
+    }
+    .filters label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--muted); }
+    .filters select, .filters input, .filters button {
+      font: inherit;
+      font-size: 0.95rem;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card);
+      color: var(--text);
+    }
+    .filters input { width: 140px; }
+    .filters button { background: var(--accent); border-color: var(--accent); color: #ffffff; cursor: pointer; }
+    .empty {
+      grid-column: 1 / -1;
+      padding: 20px 16px;
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+      color: var(--muted);
+    }
+    .empty p { margin: 0 0 4px; }
+    .evidence { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border); }
+    .evidence h2 { margin: 0 0 16px; font-size: 1.3rem; }
+    .evidence figure { margin: 0 0 28px; }
+    .evidence img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fcfcfb;
+    }
+    .evidence figcaption { margin-top: 8px; }
+    .limit { margin: 0 0 16px; color: var(--muted); }
+    .source { margin: 0; color: var(--muted); font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>하키 팀 비교 도우미</h1>
+    <p class="count" id="count">불러오는 중…</p>
+    <p class="notice">이 사이트에는 팀별 상세 화면이 없어 수집된 목록 페이지로 연결합니다.</p>
+    <form class="filters" id="filters">
+      <label>시즌
+        <select id="season">
+          <option value=""></option>
+          <option value="1990">1990</option>
+          <option value="1991">1991</option>
+          <option value="1992">1992</option>
+        </select>
+      </label>
+      <label>최소 승리 수
+        <input type="number" id="min-wins" min="0" step="1" inputmode="numeric">
+      </label>
+      <button type="submit">적용</button>
+    </form>
+    <ul class="grid" id="cards"></ul>
+
+    <section class="evidence" aria-labelledby="evidence-title">
+      <h2 id="evidence-title">근거</h2>
+      <figure>
+        <img src="charts/hist.png" width="1200" height="750" loading="lazy"
+             alt="승리 수 히스토그램 (팀-시즌 기록 50개). 10~20승 2개, 20~30승 9개, 30~40승 24개, 40~50승 13개, 50~60승 2개.">
+        <figcaption>50개 팀-시즌 기록 중 30승 이상 40승 미만 구간이 24개로 가장 많다.</figcaption>
+      </figure>
+      <figure>
+        <img src="charts/by_category.png" width="1050" height="750" loading="lazy"
+             alt="시즌별 평균 승리 수 막대그래프. 1990 시즌 34.67승(21개), 1991 시즌 34.68승(22개), 1992 시즌 39.71승(7개).">
+        <figcaption>1992 시즌의 평균 승리 수는 39.71승으로 가장 높지만, 이 평균에 포함된 팀-시즌 기록은 7개이다.</figcaption>
+      </figure>
+      <p class="limit">처음 2페이지의 50개 기록만 분석했으며, 1992 시즌은 일부인 7개 기록만 포함되어 21~22개 기록이 포함된 1990·1991 시즌과 같은 무게로 비교하기 어렵다.</p>
+      <p class="source">출처: Scrape This Site 하키 팀 목록 1~2페이지 · 2026-09-28 수집 · 팀-시즌 기록 50개</p>
+    </section>
+  </main>
+
+  <script>
+    // 카드 번호별로 연결할 원래 목록 페이지 (0~24 → 1페이지, 25~49 → 2페이지)
+    function listPageUrl(index) {
+      if (index >= 0 && index <= 24) return "https://www.scrapethissite.com/pages/forms/?page_num=1";
+      if (index >= 25 && index <= 49) return "https://www.scrapethissite.com/pages/forms/?page_num=2";
+      return null;
+    }
+
+    // 글자를 담은 요소 하나를 만든다 (textContent로 넣어 HTML로 해석되지 않게 한다)
+    function el(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
+
+    // 카드 한 장을 만든다 (index는 data.json 안의 원래 번호)
+    function makeCard(item, index) {
+      const card = el("li", "card");
+      card.appendChild(el("span", "num", "#" + index));
+      card.appendChild(el("h2", "name", item.name));
+      const stats = el("ul", "stats");
+      stats.appendChild(el("li", "wins", item.wins + " wins"));
+      stats.appendChild(el("li", "", item.year + " season"));
+      stats.appendChild(el("li", "", item.goals_for + " goals"));
+      card.appendChild(stats);
+      const url = listPageUrl(index);
+      if (url) {
+        const link = el("a", "", "원래 목록 보기");
+        link.href = url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        card.appendChild(link);
+      }
+      return card;
+    }
+
+    // 카드 목록과 개수 줄을 다시 그린다 (entries는 {item, index} 목록)
+    function render(entries, all, season) {
+      document.getElementById("count").textContent =
+        "조건에 맞는 " + entries.length + "개 / 전체 " + all.length + "개";
+      const list = document.getElementById("cards");
+      list.replaceChildren();
+      if (entries.length > 0) {
+        entries.forEach(({ item, index }) => list.appendChild(makeCard(item, index)));
+        return;
+      }
+      // 맞는 카드가 없으면 카드 자리에 안내를 보여준다 (최대 승리 수는 data.json에서 계산)
+      const pool = season ? all.filter(({ item }) => item.year === season) : all;
+      const maxWins = Math.max(...pool.map(({ item }) => item.wins));
+      const box = el("li", "empty");
+      box.appendChild(el("p", "", "조건에 맞는 팀-시즌 기록이 없습니다."));
+      box.appendChild(el("p", "", (season ? "선택한 시즌의" : "전체 기록의") +
+        " 최대 승리 수는 " + maxWins + "승입니다. 최소 승리 수를 " + maxWins + "승 이하로 낮추면 후보가 생겨요."));
+      list.appendChild(box);
+    }
+
+    // data.json을 읽어 카드 목록을 그리고 조건 칸을 연결한다
+    fetch("data/data.json")
+      .then((res) => {
+        if (!res.ok) throw new Error("data.json 응답 상태 " + res.status);
+        return res.json();
+      })
+      .then((items) => {
+        const all = items.map((item, index) => ({ item, index }));
+        render(all, all, "");
+
+        // "적용"을 누르면 두 조건을 모두 만족하는 카드만 wins 높은 순으로 보여준다
+        document.getElementById("filters").addEventListener("submit", (event) => {
+          event.preventDefault();
+          const season = document.getElementById("season").value;
+          const minText = document.getElementById("min-wins").value.trim();
+          const minWins = minText === "" ? null : Number(minText);
+          const matched = all
+            .filter(({ item }) => season === "" || item.year === season)
+            .filter(({ item }) => minWins === null || item.wins >= minWins)
+            .sort((a, b) => b.item.wins - a.item.wins || a.index - b.index);
+          render(matched, all, season);
+        });
+      })
+      .catch((err) => {
+        const count = document.getElementById("count");
+        count.className = "count error";
+        count.textContent = "데이터를 불러오지 못했습니다: " + err.message;
+      });
+  </script>
+</body>
+</html>
