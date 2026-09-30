@@ -125,8 +125,22 @@
       font-weight: 600;
     }
   </style>
+
+<!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','GTM-KDFLLM3W');</script>
+<!-- End Google Tag Manager -->
 </head>
 <body>
+
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-KDFLLM3W"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+
   <main>
     <h1>하키 팀 비교 도우미</h1>
     <p class="count" id="count">불러오는 중…</p>
@@ -182,6 +196,20 @@
       return node;
     }
 
+    // dataLayer에 이벤트 하나를 넣는다 (GTM이 읽는다)
+    function track(data) {
+      window.dataLayer = window.dataLayer || [];
+      window.dataLayer.push(data);
+    }
+
+    // 조건 매개변수를 만든다 (빈 값은 undefined로 두어 앞 이벤트의 값이 남지 않고 GA4로 보내지지 않게 한다)
+    function conditionParams(season, minWins) {
+      return {
+        season: season === "" ? undefined : season,
+        min_wins: minWins === null ? undefined : minWins,
+      };
+    }
+
     // 카드 한 장을 만든다 (index는 data.json 안의 원래 번호)
     function makeCard(item, index) {
       const card = el("li", "card");
@@ -200,6 +228,23 @@
         link.href = url;
         link.target = "_blank";
         link.rel = "noopener noreferrer";
+        // 링크를 누르면 고른 팀-시즌 기록 하나를 select_item으로 보낸다 (AI 추천 표시는 누른 순간 기준)
+        link.addEventListener("click", () => {
+          track({ ecommerce: null });
+          track({
+            event: "select_item",
+            ecommerce: {
+              item_list_name: card.classList.contains("picked") ? "ai_recommendation" : "filtered_list",
+              items: [{
+                item_id: item.name + "|" + item.year,
+                item_name: item.name,
+                season: item.year,
+                wins: item.wins,
+                goals_for: item.goals_for,
+              }],
+            },
+          });
+        });
         card.appendChild(link);
       }
       return card;
@@ -318,6 +363,7 @@
           applied = { season, minText, minWins, matched };
           clearRecommendation();
           render(matched, all, season);
+          track({ event: "filter_team_list", ...conditionParams(season, minWins), result_count: matched.length });
         });
 
         // 조건 칸을 바꾸면 이전 추천을 지운다
@@ -342,6 +388,7 @@
           updateRecButton();
           const timer = setTimeout(() => controller.abort(), 50000);
           let message = MSG_UNAVAILABLE;
+          let status = "unavailable";
           let result = null;
           try {
             const res = await fetch("/api/recommend", {
@@ -352,9 +399,13 @@
             });
             if (res.status === 422) {
               message = MSG_UNVERIFIED;
+              status = "unverified";
             } else if (res.ok) {
               result = verify(await res.json(), candidates);
-              if (!result) message = MSG_UNVERIFIED;
+              if (!result) {
+                message = MSG_UNVERIFIED;
+                status = "unverified";
+              }
             }
           } catch (err) {
             // 시간 초과·네트워크 오류는 MSG_UNAVAILABLE로 둔다
@@ -367,6 +418,12 @@
           updateRecButton();
           if (result) showRecommendation(result);
           else showMessage(message);
+          track({
+            event: "request_ai_recommendation",
+            ...conditionParams(applied.season, applied.minWins),
+            candidate_count: candidates.length,
+            result_status: result ? "success" : status,
+          });
         });
       })
       .catch((err) => {
